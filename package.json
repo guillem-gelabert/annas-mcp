@@ -1,0 +1,26 @@
+{
+  "name": "annas-mcp-ts",
+  "version": "0.1.0",
+  "description": "Bun TypeScript MCP server for Anna's Archive article search and download metadata.",
+  "type": "module",
+  "bin": {
+    "annas-mcp": "./dist/server.js"
+  },
+  "scripts": {
+    "dev": "bun run src/server.ts",
+    "start": "bun run src/server.ts",
+    "build": "bun build src/server.ts --target node --outfile dist/server.js && sed -i '' '1s|^|#!/usr/bin/env node\\n|' dist/server.js && chmod +x dist/server.js",
+    "prepublishOnly": "bun run build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0-alpha.2",
+    "cheerio": "^1.2.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.9.0"
+  }
+}
