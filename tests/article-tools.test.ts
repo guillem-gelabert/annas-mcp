@@ -137,6 +137,9 @@ describe("article MCP handlers", () => {
       if (url.includes("/dyn/api/fast_download.json")) {
         return Response.json({ download_url: "https://download.example/paper.pdf" });
       }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["Interesting Paper"] } });
+      }
       throw new Error(`Unexpected URL: ${url}`);
     };
 
@@ -166,39 +169,6 @@ describe("article MCP handlers", () => {
     expect(result.structuredContent).not.toHaveProperty("verification");
   });
 
-  test("article_download includes verification when verbose=true", async () => {
-    const fetchMock: FetchLike = async (input) => {
-      const url = String(input);
-      if (url.includes("/scidb/10.1038%2Fnature12345")) {
-        return response(searchHtml);
-      }
-      if (url.includes("/md5/abc123def456")) {
-        return response(detailHtml);
-      }
-      if (url.includes("/dyn/api/fast_download.json")) {
-        return Response.json({ download_url: "https://download.example/paper.pdf" });
-      }
-      if (url.includes("api.crossref.org/works/")) {
-        return Response.json({ message: { title: ["Interesting Paper"] } });
-      }
-      throw new Error(`Unexpected URL: ${url}`);
-    };
-
-    const result = await handleArticleDownload(
-      { doi: "10.1038/nature12345", verbose: true },
-      { config, fetchImpl: fetchMock },
-    );
-
-    expect(result.isError).toBeUndefined();
-    expect(result.structuredContent).toMatchObject({
-      verification: {
-        crossrefTitle: "Interesting Paper",
-        annasTitle: "Interesting Paper",
-        confidence: "high",
-      },
-    });
-  });
-
   test("article_download resolves DOI with dots and slashes (10.1016/j.aju.2012.11.001)", async () => {
     const doi = "10.1016/j.aju.2012.11.001";
     const fetchMock: FetchLike = async (input) => {
@@ -211,6 +181,9 @@ describe("article MCP handlers", () => {
       }
       if (url.includes("/dyn/api/fast_download.json")) {
         return Response.json({ download_url: "https://download.example/paper.pdf" });
+      }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["Interesting Paper"] } });
       }
       throw new Error(`Unexpected URL: ${url}`);
     };
@@ -325,6 +298,9 @@ describe("article_download batch execution", () => {
       if (url.includes("/dyn/api/fast_download.json")) {
         return Response.json({ download_url: "https://download.example/paper.pdf" });
       }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["Interesting Paper"] } });
+      }
       throw new Error(`Unexpected URL: ${url}`);
     };
 
@@ -343,13 +319,16 @@ describe("article_download batch execution", () => {
     const failingDoi = "10.9999/failing-doi";
     const fetchMock: FetchLike = async (input) => {
       const url = String(input);
-      if (url.includes(encodeURIComponent(failingDoi))) {
+      if (url.includes(encodeURIComponent(failingDoi)) && !url.includes("api.crossref.org")) {
         throw new Error(`No article found for DOI: ${failingDoi}`);
       }
       if (url.includes("/scidb/")) return response(searchHtml);
       if (url.includes("/md5/")) return response(detailHtml);
       if (url.includes("/dyn/api/fast_download.json")) {
         return Response.json({ download_url: "https://download.example/paper.pdf" });
+      }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["Interesting Paper"] } });
       }
       throw new Error(`Unexpected URL: ${url}`);
     };
@@ -416,6 +395,9 @@ describe("article_download base URL circuit breakers", () => {
           return Response.json({ download_url: "https://download.example/paper.pdf" });
         }
       }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["CB Paper One"] } });
+      }
       throw new Error(`Unexpected URL: ${url}`);
     };
 
@@ -460,6 +442,9 @@ describe("article_download base URL circuit breakers", () => {
         if (url.includes("/dyn/api/fast_download.json")) {
           return Response.json({ download_url: "https://download.example/paper.pdf" });
         }
+      }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["CB Paper One"] } });
       }
       throw new Error(`Unexpected URL: ${url}`);
     };
@@ -566,11 +551,14 @@ describe("article_download base URL circuit breakers", () => {
       if (url.includes("/dyn/api/fast_download.json")) {
         return Response.json({ download_url: "https://download.example/paper.pdf" });
       }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["Interesting Paper"] } });
+      }
       throw new Error(`Unexpected URL: ${url}`);
     };
 
     const result = await handleArticleDownload(
-      { doi: doi1, verbose: true },
+      { doi: doi1 },
       { config, fetchImpl: fetchMock },
     );
 
@@ -592,12 +580,11 @@ describe("article_download base URL circuit breakers", () => {
   });
 });
 
-describe("article_download verification (VER-07/08/09/10/11)", () => {
+describe("article_download CrossRef verification", () => {
   const doi1 = "10.1038/nature12345";
   const doi2 = "10.1016/j.aju.2012.11.001";
   const failingDoi = "10.9999/failing-doi";
 
-  // Anna's Archive mock responder: routes scidb, md5, and fast_download URLs
   function annasArchiveMock(input: string | URL): Response {
     const url = String(input);
     if (url.includes("/scidb/")) return response(searchHtml);
@@ -608,112 +595,118 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     throw new Error(`Unexpected Anna's Archive URL: ${url}`);
   }
 
-  test("single-DOI — verification present with crossrefTitle, annasTitle, confidence (VER-07)", async () => {
+  test("single-DOI — succeeds when CrossRef title matches", async () => {
     const fetchMock: FetchLike = async (input) => {
-      const url = String(input);
-      if (url.includes("api.crossref.org")) {
+      if (String(input).includes("api.crossref.org")) {
         return Response.json({ message: { title: ["Interesting Paper"] } });
       }
       return annasArchiveMock(input);
     };
 
-    const result = await handleArticleDownload(
-      { doi: doi1, verbose: true },
-      { config, fetchImpl: fetchMock },
-    );
+    const result = await handleArticleDownload({ doi: doi1 }, { config, fetchImpl: fetchMock });
 
     expect(result.isError).toBeUndefined();
-    const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toHaveProperty("verification");
-    expect(sc.verification).toEqual({
-      crossrefTitle: "Interesting Paper",
-      annasTitle: "Interesting Paper",
-      confidence: "high",
+    expect(result.structuredContent).toMatchObject({
+      article: expect.objectContaining({ doi: doi1 }),
+      sources: expect.any(Array),
     });
+    expect(result.structuredContent).not.toHaveProperty("verification");
   });
 
-  test("single-DOI — CrossRef failure degrades to unverified, does not hard-fail (VER-09)", async () => {
+  test("single-DOI — errors on title mismatch (low confidence)", async () => {
     const fetchMock: FetchLike = async (input) => {
-      const url = String(input);
-      if (url.includes("api.crossref.org")) {
-        throw new Error("network failure");
+      if (String(input).includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["Completely Different Title"] } });
       }
       return annasArchiveMock(input);
     };
 
-    const result = await handleArticleDownload(
-      { doi: doi1, verbose: true },
-      { config, fetchImpl: fetchMock },
-    );
+    const result = await handleArticleDownload({ doi: doi1 }, { config, fetchImpl: fetchMock });
 
-    expect(result.isError).toBeUndefined();
-    const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toHaveProperty("verification");
-    expect(sc.verification).toEqual({
-      crossrefTitle: null,
-      annasTitle: "Interesting Paper",
-      confidence: "unverified",
-    });
+    expect(result.isError).toBe(true);
+    expect(firstText(result)).toContain("mismatch");
+    expect(firstText(result)).toContain("Interesting Paper");
+    expect(firstText(result)).toContain("Completely Different Title");
   });
 
-  test("batch — each successful item has verification field (VER-08)", async () => {
+  test("single-DOI — errors when CrossRef cannot verify (network failure)", async () => {
     const fetchMock: FetchLike = async (input) => {
-      const url = String(input);
-      if (url.includes("api.crossref.org")) {
+      if (String(input).includes("api.crossref.org")) {
+        throw new TypeError("network failure");
+      }
+      return annasArchiveMock(input);
+    };
+
+    const result = await handleArticleDownload({ doi: doi1 }, { config, fetchImpl: fetchMock });
+
+    expect(result.isError).toBe(true);
+    expect(firstText(result)).toContain("Cannot verify");
+  });
+
+  test("single-DOI — errors when CrossRef returns null title", async () => {
+    const fetchMock: FetchLike = async (input) => {
+      if (String(input).includes("api.crossref.org")) {
+        return Response.json({ message: { title: [] } });
+      }
+      return annasArchiveMock(input);
+    };
+
+    const result = await handleArticleDownload({ doi: doi1 }, { config, fetchImpl: fetchMock });
+
+    expect(result.isError).toBe(true);
+    expect(firstText(result)).toContain("Cannot verify");
+  });
+
+  test("batch — items with matching CrossRef title succeed without verification block", async () => {
+    const fetchMock: FetchLike = async (input) => {
+      if (String(input).includes("api.crossref.org")) {
         return Response.json({ message: { title: ["Interesting Paper"] } });
       }
       return annasArchiveMock(input);
     };
 
-    const result = await handleArticleDownload(
-      { dois: [doi1, doi2], verbose: true },
-      { config, fetchImpl: fetchMock },
-    );
+    const result = await handleArticleDownload({ dois: [doi1, doi2] }, { config, fetchImpl: fetchMock });
 
     expect(result.isError).toBeUndefined();
     const sc = result.structuredContent as { results: Record<string, unknown>[] };
     expect(sc.results).toHaveLength(2);
     for (const item of sc.results) {
-      expect(item).toHaveProperty("verification");
-      const v = item.verification as Record<string, unknown>;
-      expect(v).toHaveProperty("crossrefTitle");
-      expect(v).toHaveProperty("annasTitle");
-      expect(v).toHaveProperty("confidence");
+      expect(item).toHaveProperty("article");
+      expect(item).toHaveProperty("sources");
+      expect(item).not.toHaveProperty("verification");
+      expect(item).not.toHaveProperty("error");
     }
   });
 
-  test("batch — failed items omit verification; successful items have it (VER-10)", async () => {
+  test("batch — title mismatch produces error entry; other DOIs continue", async () => {
     const fetchMock: FetchLike = async (input) => {
       const url = String(input);
-      if (url.includes(encodeURIComponent(failingDoi))) {
-        throw new Error(`No article found for DOI: ${failingDoi}`);
-      }
       if (url.includes("api.crossref.org")) {
+        if (url.includes(encodeURIComponent(doi1))) {
+          return Response.json({ message: { title: ["Wrong Title Entirely"] } });
+        }
         return Response.json({ message: { title: ["Interesting Paper"] } });
       }
       return annasArchiveMock(input);
     };
 
-    const result = await handleArticleDownload(
-      { dois: [failingDoi, doi1], verbose: true },
-      { config, fetchImpl: fetchMock },
-    );
+    const result = await handleArticleDownload({ dois: [doi1, doi2] }, { config, fetchImpl: fetchMock });
 
     expect(result.isError).toBeUndefined();
     const sc = result.structuredContent as { results: Record<string, unknown>[] };
     expect(sc.results).toHaveLength(2);
-
-    // Failed item must NOT have verification
     expect(sc.results[0]).toHaveProperty("error");
-    expect(sc.results[0]).not.toHaveProperty("verification");
-
-    // Successful item must have verification
-    expect(sc.results[1]).toHaveProperty("verification");
+    expect(sc.results[0]).not.toHaveProperty("article");
+    expect(sc.results[1]).toHaveProperty("article");
+    expect(sc.results[1]).not.toHaveProperty("error");
   });
 
-  test("single-DOI — CrossRef null title (empty array) produces unverified (VER-09)", async () => {
+  test("batch — Anna's Archive failure and unverified both surface as error entries", async () => {
     const fetchMock: FetchLike = async (input) => {
       const url = String(input);
+      if (url.includes(encodeURIComponent(failingDoi)) && !url.includes("api.crossref.org")) {
+        throw new Error(`No article found for DOI: ${failingDoi}`);
+      }
       if (url.includes("api.crossref.org")) {
         return Response.json({ message: { title: [] } });
       }
@@ -721,44 +714,16 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     };
 
     const result = await handleArticleDownload(
-      { doi: doi1, verbose: true },
+      { dois: [failingDoi, doi1] },
       { config, fetchImpl: fetchMock },
     );
 
     expect(result.isError).toBeUndefined();
-    const sc = result.structuredContent as Record<string, unknown>;
-    expect(sc).toHaveProperty("verification");
-    const v = sc.verification as Record<string, unknown>;
-    expect(v.confidence).toBe("unverified");
-    expect(v.crossrefTitle).toBeNull();
-  });
-
-  test("batch compact mode omits verification when verbose=false", async () => {
-    const fetchMock: FetchLike = async (input) => {
-      const url = String(input);
-      if (url.includes("/scidb/")) return response(searchHtml);
-      if (url.includes("/md5/")) return response(detailHtml);
-      if (url.includes("/dyn/api/fast_download.json")) {
-        return Response.json({ download_url: "https://download.example/paper.pdf" });
-      }
-      if (url.includes("api.crossref.org")) {
-        return Response.json({ message: { title: ["Interesting Paper"] } });
-      }
-      throw new Error(`Unexpected URL: ${url}`);
-    };
-
-    const result = await handleArticleDownload(
-      { dois: [doi1, doi2], verbose: false },
-      { config, fetchImpl: fetchMock },
-    );
-
-    expect(result.isError).toBeUndefined();
-    expect(firstText(result)).toContain("compact mode");
     const sc = result.structuredContent as { results: Record<string, unknown>[] };
     expect(sc.results).toHaveLength(2);
-    expect(sc.results[0]).not.toHaveProperty("verification");
-    expect(sc.results[1]).not.toHaveProperty("verification");
-    expect(sc.results[0]).toHaveProperty("article");
-    expect(sc.results[0]).toHaveProperty("sources");
+    expect(sc.results[0]).toHaveProperty("error");
+    expect(sc.results[0]).not.toHaveProperty("article");
+    expect(sc.results[1]).toHaveProperty("error");
+    expect(sc.results[1]).not.toHaveProperty("article");
   });
 });

@@ -52,10 +52,6 @@ export const articleDownloadInputSchema = z
       .min(1)
       .optional()
       .describe("Array of DOIs to resolve in batch"),
-    verbose: z
-      .boolean()
-      .optional()
-      .describe("Include title verification metadata (crossrefTitle, annasTitle, confidence)"),
   })
   .superRefine((val, ctx) => {
     const hasDoi = val.doi !== undefined;
@@ -73,16 +69,9 @@ export const articleDownloadInputSchema = z
     }
   });
 
-const verificationSchema = z.object({
-  crossrefTitle: z.string().nullable(),
-  annasTitle: z.string().nullable(),
-  confidence: z.enum(["high", "low", "unverified"]),
-});
-
 export const articleDownloadOutputSchema = z.object({
   article: articleSchema,
   sources: z.array(downloadSourceSchema),
-  verification: verificationSchema.optional(),
 });
 
 const articleBatchResultSchema = z.object({
@@ -90,7 +79,6 @@ const articleBatchResultSchema = z.object({
   article: articleSchema.optional(),
   sources: z.array(downloadSourceSchema).optional(),
   error: z.string().optional(),
-  verification: verificationSchema.optional(),
 });
 
 export const articleBatchDownloadOutputSchema = z.object({
@@ -160,6 +148,7 @@ export async function handleArticleDownload(
   try {
     if ("dois" in args && args.dois) {
       return await handleBatchArticleDownload(args as { dois: string[] }, dependencies);
+
     }
 
     return await handleSingleArticleDownload(args as { doi: string }, dependencies);
@@ -173,52 +162,45 @@ export async function handleArticleDownload(
 }
 
 async function handleSingleArticleDownload(
-  args: { doi: string; verbose?: boolean },
+  args: { doi: string },
   dependencies: ArticleToolDependencies,
 ): Promise<CallToolResult> {
   const manager = dependencies.baseUrlManager ?? new BaseUrlManager(dependencies.config, dependencies.fetchImpl);
-  const includeVerification = args.verbose === true;
-  const { results: resolution } = await withResolvedBaseUrl(
-    dependencies,
-    manager,
-    (cfg, fi) => new ArticleService(cfg, fi),
-    (service) => service.resolveArticleDownload(args.doi),
-  );
+  const [{ results: resolution }, crossrefTitle] = await Promise.all([
+    withResolvedBaseUrl(
+      dependencies,
+      manager,
+      (cfg, fi) => new ArticleService(cfg, fi),
+      (service) => service.resolveArticleDownload(args.doi),
+    ),
+    fetchCrossRefTitle(args.doi, dependencies.fetchImpl).catch(() => null),
+  ]);
 
-  let structuredContent: {
-    article: typeof resolution.article;
-    sources: typeof resolution.sources;
-    verification?: {
-      crossrefTitle: string | null;
-      annasTitle: string | null;
-      confidence: "high" | "low" | "unverified";
-    };
-  } = {
-    article: resolution.article,
-    sources: resolution.sources,
-  };
+  const annasTitle = resolution.article.title ?? null;
+  const confidence = computeConfidence(annasTitle ?? "", crossrefTitle);
 
-  if (includeVerification) {
-    const crossrefTitle = await fetchCrossRefTitle(args.doi, dependencies.fetchImpl).catch(() => null);
-    const annasTitle = resolution.article.title ?? null;
-    structuredContent = {
-      ...structuredContent,
-      verification: {
-        crossrefTitle,
-        annasTitle,
-        confidence: computeConfidence(annasTitle ?? "", crossrefTitle),
-      },
-    };
+  if (confidence === "low") {
+    return textResult(
+      `Title mismatch for DOI ${args.doi}. Anna's Archive: "${annasTitle}" — Crossref: "${crossrefTitle}". Verify the DOI is correct before proceeding.`,
+      true,
+    );
+  }
+
+  if (confidence === "unverified") {
+    return textResult(
+      `Crossref has no record for DOI ${args.doi}. Cannot verify article identity.`,
+      true,
+    );
   }
 
   return {
     content: [{ type: "text", text: `Resolved article DOI ${args.doi} with ${resolution.sources.length} source(s)` }],
-    structuredContent,
+    structuredContent: { article: resolution.article, sources: resolution.sources },
   };
 }
 
 async function handleBatchArticleDownload(
-  args: { dois: string[]; verbose?: boolean },
+  args: { dois: string[] },
   dependencies: ArticleToolDependencies,
 ): Promise<CallToolResult> {
   // Create one shared BaseUrlManager instance for all lookups
@@ -295,17 +277,17 @@ async function handleBatchArticleDownload(
     }
   }
 
-  const includeVerification = args.verbose === true;
-
   for (const { doi, resolution, crossrefTitle, index } of resolvedItems) {
-    if (includeVerification) {
-      const annasTitle = resolution.article.title ?? null;
-      const verification = {
-        crossrefTitle,
-        annasTitle,
-        confidence: computeConfidence(annasTitle ?? "", crossrefTitle),
-      };
-      results[index] = { doi, article: resolution.article, sources: resolution.sources, verification };
+    const annasTitle = resolution.article.title ?? null;
+    const confidence = computeConfidence(annasTitle ?? "", crossrefTitle);
+
+    if (confidence === "low") {
+      results[index] = { doi, error: `Title mismatch. Anna's Archive: "${annasTitle}" — Crossref: "${crossrefTitle}". Verify the DOI is correct before proceeding.` };
+      continue;
+    }
+
+    if (confidence === "unverified") {
+      results[index] = { doi, error: `Crossref has no record for DOI ${doi}. Cannot verify article identity.` };
       continue;
     }
 
@@ -314,11 +296,12 @@ async function handleBatchArticleDownload(
 
   // Filter out any undefined slots (should not occur in practice) and cast to concrete type.
   const orderedResults: ArticleBatchResult[] = results.filter((r): r is ArticleBatchResult => r !== undefined);
+  const successCount = orderedResults.filter((r) => !r.error).length;
 
   return {
     content: [{
       type: "text",
-      text: `Resolved ${resolvedItems.length}/${args.dois.length} DOI(s)${includeVerification ? "" : " (compact mode)"}`,
+      text: `Resolved ${successCount}/${args.dois.length} DOI(s)`,
     }],
     structuredContent: { results: orderedResults },
   };
