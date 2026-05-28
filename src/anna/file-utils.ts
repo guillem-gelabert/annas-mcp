@@ -150,6 +150,12 @@ export function checkDownloadCache(downloadRoot: string, key: CacheKey): string 
 
   if (!existsSync(entry)) return null;
 
+  const resolvedRoot = resolve(downloadRoot);
+  const resolvedEntry = resolve(entry);
+  if (resolvedEntry !== resolvedRoot && !resolvedEntry.startsWith(resolvedRoot + sep)) {
+    return null;
+  }
+
   return entry;
 }
 

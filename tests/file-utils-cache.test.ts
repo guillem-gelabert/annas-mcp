@@ -67,6 +67,26 @@ describe("checkDownloadCache", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("returns null when cache entry path escapes downloadRoot even if the file exists on disk", () => {
+    // Create two separate temp dirs: root (the configured download root) and
+    // outsideDir (simulates an attacker-controlled or manually edited cache).
+    const root = mkdtempSync(join(tmpdir(), "annas-cache-test-"));
+    const outsideDir = mkdtempSync(join(tmpdir(), "annas-outside-test-"));
+    try {
+      const outsideFile = join(outsideDir, "secret.epub");
+      writeFileSync(outsideFile, "sensitive data");
+      writeFileSync(
+        join(root, ".annas-cache.json"),
+        JSON.stringify({ "md5:abc": outsideFile }),
+      );
+      // The file exists on disk but is outside downloadRoot — must return null.
+      expect(checkDownloadCache(root, { hash: "abc" })).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("recordDownloadCache", () => {
