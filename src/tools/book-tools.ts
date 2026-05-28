@@ -44,7 +44,7 @@ export const bookDownloadInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Absolute path to save the file. Must be inside ANNAS_DOWNLOAD_PATH (the configured root). Defaults to ANNAS_DOWNLOAD_PATH itself when omitted.",
+      "Absolute path within ANNAS_DOWNLOAD_PATH; defaults to root",
     ),
 });
 
@@ -193,7 +193,7 @@ export function registerBookTools(server: McpServer, dependencies: BookToolDepen
     {
       title: "Book Download",
       description:
-        "Resolve a book's fast_download URL by MD5 hash. Optionally write the file to disk when download: true is set. Pass title and format from a prior book_search result to get the correct filename and extension.",
+        "Resolve fast_download URL for a book by MD5 hash. Writes to disk when `download: true`.",
       inputSchema: bookDownloadInputSchema,
       outputSchema: bookDownloadOutputSchema,
       annotations: {

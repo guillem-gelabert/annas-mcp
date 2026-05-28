@@ -55,7 +55,7 @@ export const articleDownloadInputSchema = z
     verbose: z
       .boolean()
       .optional()
-      .describe("When true, include verification details (crossrefTitle, annasTitle, confidence). Default is compact mode."),
+      .describe("Include title verification metadata (crossrefTitle, annasTitle, confidence)"),
   })
   .superRefine((val, ctx) => {
     const hasDoi = val.doi !== undefined;
@@ -346,7 +346,7 @@ export function registerArticleTools(server: McpServer, dependencies: ArticleToo
     {
       title: "Article Download",
       description:
-        "Resolve academic article DOI download URLs and metadata. This tool does not write files to disk. Compact output is returned by default; set `verbose: true` to include verification metadata. When resolving multiple articles, always use the `dois` array input in a single call rather than making parallel `doi` calls — batch mode runs all lookups in one request with shared state and is significantly more efficient.",
+        "Resolve DOI(s) to download URLs. No disk writes. Prefer `dois[]` batch over parallel `doi` calls.",
       inputSchema: articleDownloadInputSchema,
       // outputSchema intentionally omitted: the handler returns articleDownloadOutputSchema for single DOI
       // and articleBatchDownloadOutputSchema for batch DOI — two distinct shapes. Registering either
