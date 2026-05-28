@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "bun run src/server.ts",
     "start": "bun run src/server.ts",
-    "build": "bun build src/server.ts --target node --outfile dist/server.js && sed -i '' '1s|^|#!/usr/bin/env node\\n|' dist/server.js && chmod +x dist/server.js",
+    "build": "bun build src/server.ts --target node --outfile dist/server.js && node -e \"const fs=require('fs');const f='dist/server.js';fs.writeFileSync(f,'#!/usr/bin/env node\\n'+fs.readFileSync(f,'utf8'))\" && chmod +x dist/server.js",
     "prepublishOnly": "bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
