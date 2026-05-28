@@ -127,13 +127,14 @@ export async function handleArticleSearch(
     }
 
     const truncated = results.length > limitedResults.length;
+    const preview = limitedResults.slice(0, 3)
+      .map((r) => `- ${r.doi ?? "no-doi"}: ${r.title ?? "untitled"}`)
+      .join("\n");
+    const header = truncated
+      ? `Found ${results.length} article(s); returning first ${limitedResults.length}`
+      : `Found ${limitedResults.length} article(s)`;
     return {
-      content: [{
-        type: "text",
-        text: truncated
-          ? `Found ${results.length} article result(s) for query: ${args.query}; returning first ${limitedResults.length}`
-          : `Found ${limitedResults.length} article result(s) for query: ${args.query}`,
-      }],
+      content: [{ type: "text", text: `${header}\n${preview}` }],
       structuredContent,
     };
   } catch (error) {
@@ -193,8 +194,10 @@ async function handleSingleArticleDownload(
     );
   }
 
+  const fastUrl = resolution.sources.find((s) => s.type === "fast_download")?.url ?? resolution.sources[0]?.url;
+  const urlLine = fastUrl ? `\nDownload: ${fastUrl}` : "";
   return {
-    content: [{ type: "text", text: `Resolved article DOI ${args.doi} with ${resolution.sources.length} source(s)` }],
+    content: [{ type: "text", text: `Resolved DOI ${args.doi}${urlLine}` }],
     structuredContent: { article: resolution.article, sources: resolution.sources },
   };
 }
