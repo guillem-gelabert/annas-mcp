@@ -150,11 +150,13 @@ Input:
 
 ```json
 {
-  "query": "10.1038/nature12345"
+  "query": "10.1038/nature12345",
+  "limit": 10
 }
 ```
 
 DOI-like queries beginning with `10.` use Anna's Archive SciDB lookup behavior. Other queries use Anna's Archive journal/article search.
+`limit` is optional and defaults to `10` (max `50`).
 
 Structured output:
 
@@ -189,8 +191,9 @@ Input:
 
 Parameters:
 - `doi` (required): DOI of the article to resolve (must match format `10.xxxx/...`)
+- `verbose` (optional, default `false`): When `true`, include verification metadata (`crossrefTitle`, `annasTitle`, `confidence`)
 
-Structured output:
+Structured output (default compact / terse):
 
 ```json
 {
@@ -210,12 +213,38 @@ Structured output:
 }
 ```
 
+Structured output (verbose):
+
+```json
+{
+  "article": {
+    "doi": "10.1038/nature12345",
+    "title": "Example Paper",
+    "hash": "md5-hash",
+    "pageUrl": "https://annas-archive.li/md5/md5-hash",
+    "downloadUrl": "https://annas-archive.li/scidb?doi=10.1038%2Fnature12345"
+  },
+  "sources": [
+    { "type": "fast_download", "url": "https://cdn1.example/..." },
+    { "type": "fast_download", "url": "https://cdn2.example/..." },
+    { "type": "scidb_pdf",     "url": "https://cdn3.example/...hash...pdf" },
+    { "type": "scidb",         "url": "https://annas-archive.li/scidb?doi=10.1038%2Fnature12345" }
+  ],
+  "verification": {
+    "crossrefTitle": "Example Paper",
+    "annasTitle": "Example Paper",
+    "confidence": "high"
+  }
+}
+```
+
 Output fields:
 - `article`: Core article metadata
 - `sources`: Ordered list of download sources tried in sequence until one succeeds:
   - `fast_download` — member CDN URLs from the `fast_download.json` API (up to 4 servers via `domain_index`); 8 s timeout each
   - `scidb_pdf` — direct CDN URL scraped from the SciDB page and verified to contain the article's MD5 hash; 20 s timeout; present for most but not all articles
   - `scidb` — SciDB HTML page
+- `verification` (verbose mode only): CrossRef title check and confidence score
 
 ### `book_search`
 
@@ -225,9 +254,12 @@ Input:
 
 ```json
 {
-  "query": "Thinking, Fast and Slow"
+  "query": "Thinking, Fast and Slow",
+  "limit": 10
 }
 ```
+
+`limit` is optional and defaults to `10` (max `50`).
 
 Structured output:
 

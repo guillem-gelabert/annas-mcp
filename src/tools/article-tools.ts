@@ -25,8 +25,12 @@ const downloadSourceSchema = z.object({
   url: z.string(),
 });
 
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_SEARCH_LIMIT = 50;
+
 export const articleSearchInputSchema = z.object({
   query: z.string().trim().min(1).describe("DOI or search keywords for articles"),
+  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional().describe(`Maximum number of results to return (default ${DEFAULT_SEARCH_LIMIT})`),
 });
 
 export const articleSearchOutputSchema = z.object({
@@ -51,7 +55,7 @@ export const articleDownloadInputSchema = z
     verbose: z
       .boolean()
       .optional()
-      .describe("When false in batch mode, omit verification details to reduce payload size"),
+      .describe("When true, include verification details (crossrefTitle, annasTitle, confidence). Default is compact mode."),
   })
   .superRefine((val, ctx) => {
     const hasDoi = val.doi !== undefined;
@@ -78,7 +82,7 @@ const verificationSchema = z.object({
 export const articleDownloadOutputSchema = z.object({
   article: articleSchema,
   sources: z.array(downloadSourceSchema),
-  verification: verificationSchema,
+  verification: verificationSchema.optional(),
 });
 
 const articleBatchResultSchema = z.object({
@@ -120,20 +124,28 @@ export async function handleArticleSearch(
       (cfg, fi) => new ArticleService(cfg, fi),
       (service) => service.searchArticles(args.query),
     );
+    const limit = args.limit ?? DEFAULT_SEARCH_LIMIT;
+    const limitedResults = results.slice(0, limit);
     const structuredContent = {
       query: args.query,
-      results,
+      results: limitedResults,
     };
 
-    if (results.length === 0) {
+    if (limitedResults.length === 0) {
       return {
         content: [{ type: "text", text: `No articles found for query: ${args.query}` }],
         structuredContent,
       };
     }
 
+    const truncated = results.length > limitedResults.length;
     return {
-      content: [{ type: "text", text: `Found ${results.length} article result(s) for query: ${args.query}` }],
+      content: [{
+        type: "text",
+        text: truncated
+          ? `Found ${results.length} article result(s) for query: ${args.query}; returning first ${limitedResults.length}`
+          : `Found ${limitedResults.length} article result(s) for query: ${args.query}`,
+      }],
       structuredContent,
     };
   } catch (error) {
@@ -165,28 +177,39 @@ async function handleSingleArticleDownload(
   dependencies: ArticleToolDependencies,
 ): Promise<CallToolResult> {
   const manager = dependencies.baseUrlManager ?? new BaseUrlManager(dependencies.config, dependencies.fetchImpl);
-  const [{ results: resolution }, crossrefTitle] = await Promise.all([
-    withResolvedBaseUrl(
-      dependencies,
-      manager,
-      (cfg, fi) => new ArticleService(cfg, fi),
-      (service) => service.resolveArticleDownload(args.doi),
-    ),
-    fetchCrossRefTitle(args.doi, dependencies.fetchImpl).catch(() => null),
-  ]);
+  const includeVerification = args.verbose === true;
+  const { results: resolution } = await withResolvedBaseUrl(
+    dependencies,
+    manager,
+    (cfg, fi) => new ArticleService(cfg, fi),
+    (service) => service.resolveArticleDownload(args.doi),
+  );
 
-  const annasTitle = resolution.article.title ?? null;
-  const verification = {
-    crossrefTitle,
-    annasTitle,
-    confidence: computeConfidence(annasTitle ?? "", crossrefTitle),
-  };
-
-  const structuredContent = {
+  let structuredContent: {
+    article: typeof resolution.article;
+    sources: typeof resolution.sources;
+    verification?: {
+      crossrefTitle: string | null;
+      annasTitle: string | null;
+      confidence: "high" | "low" | "unverified";
+    };
+  } = {
     article: resolution.article,
     sources: resolution.sources,
-    verification,
   };
+
+  if (includeVerification) {
+    const crossrefTitle = await fetchCrossRefTitle(args.doi, dependencies.fetchImpl).catch(() => null);
+    const annasTitle = resolution.article.title ?? null;
+    structuredContent = {
+      ...structuredContent,
+      verification: {
+        crossrefTitle,
+        annasTitle,
+        confidence: computeConfidence(annasTitle ?? "", crossrefTitle),
+      },
+    };
+  }
 
   return {
     content: [{ type: "text", text: `Resolved article DOI ${args.doi} with ${resolution.sources.length} source(s)` }],
@@ -272,7 +295,7 @@ async function handleBatchArticleDownload(
     }
   }
 
-  const includeVerification = args.verbose !== false;
+  const includeVerification = args.verbose === true;
 
   for (const { doi, resolution, crossrefTitle, index } of resolvedItems) {
     if (includeVerification) {
@@ -323,7 +346,7 @@ export function registerArticleTools(server: McpServer, dependencies: ArticleToo
     {
       title: "Article Download",
       description:
-        "Resolve academic article DOI download URLs and metadata. This tool does not write files to disk. When resolving multiple articles, always use the `dois` array input in a single call rather than making parallel `doi` calls — batch mode runs all lookups in one request with shared state and is significantly more efficient.",
+        "Resolve academic article DOI download URLs and metadata. This tool does not write files to disk. Compact output is returned by default; set `verbose: true` to include verification metadata. When resolving multiple articles, always use the `dois` array input in a single call rather than making parallel `doi` calls — batch mode runs all lookups in one request with shared state and is significantly more efficient.",
       inputSchema: articleDownloadInputSchema,
       // outputSchema intentionally omitted: the handler returns articleDownloadOutputSchema for single DOI
       // and articleBatchDownloadOutputSchema for batch DOI — two distinct shapes. Registering either

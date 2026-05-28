@@ -22,8 +22,12 @@ const bookSchema = z.object({
   hash: z.string().optional(),
 });
 
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_SEARCH_LIMIT = 50;
+
 export const bookSearchInputSchema = z.object({
   query: z.string().trim().min(1).describe("Title, author, ISBN, or keywords to search for books"),
+  limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional().describe(`Maximum number of results to return (default ${DEFAULT_SEARCH_LIMIT})`),
 });
 
 export const bookSearchOutputSchema = z.object({
@@ -80,20 +84,28 @@ export async function handleBookSearch(
       (cfg, fi) => new BookService(cfg, fi),
       (service) => service.searchBooks(args.query),
     );
+    const limit = args.limit ?? DEFAULT_SEARCH_LIMIT;
+    const limitedResults = results.slice(0, limit);
     const structuredContent = {
       query: args.query,
-      results,
+      results: limitedResults,
     };
 
-    if (results.length === 0) {
+    if (limitedResults.length === 0) {
       return {
         content: [{ type: "text", text: `No books found for query: ${args.query}` }],
         structuredContent,
       };
     }
 
+    const truncated = results.length > limitedResults.length;
     return {
-      content: [{ type: "text", text: `Found ${results.length} book result(s) for query: ${args.query}` }],
+      content: [{
+        type: "text",
+        text: truncated
+          ? `Found ${results.length} book result(s) for query: ${args.query}; returning first ${limitedResults.length}`
+          : `Found ${limitedResults.length} book result(s) for query: ${args.query}`,
+      }],
       structuredContent,
     };
   } catch (error) {

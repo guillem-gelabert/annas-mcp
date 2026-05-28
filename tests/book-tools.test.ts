@@ -30,6 +30,26 @@ const bookSearchHtml = `
 </html>
 `;
 
+function buildBookSearchHtml(count: number): string {
+  const rows = Array.from({ length: count }, (_, index) => {
+    const i = index + 1;
+    const hash = `bookhash${String(i).padStart(2, "0")}`;
+    return `
+    <div>
+      <a class="custom-a block mr-2 sm:mr-4 hover:opacity-80" href="/md5/${hash}">cover</a>
+      <div class="max-w-full">
+        <a href="/md5/${hash}">Book ${i}</a>
+        <a href="/search?q=author"><span class="icon-[mdi--user-edit]"></span>Author ${i}</a>
+        <a href="/search?q=publisher"><span class="icon-[mdi--company]"></span>Publisher ${i}</a>
+        <div class="text-gray-800">English [en] · EPUB · 0.${i} MB</div>
+      </div>
+    </div>
+`;
+  }).join("\n");
+
+  return `<html><body>${rows}</body></html>`;
+}
+
 function response(body: string): Response {
   return new Response(body, { status: 200 });
 }
@@ -215,6 +235,33 @@ describe("book MCP handlers", () => {
     expect(result.isError).toBeUndefined();
     expect(firstText(result)).toContain("No books found");
     expect(result.structuredContent).toEqual({ query: "nonexistent", results: [] });
+  });
+
+  test("book_search defaults to limit=10", async () => {
+    const fetchMock: FetchLike = async () => response(buildBookSearchHtml(12));
+
+    const result = await handleBookSearch({ query: "books" }, { config, fetchImpl: fetchMock });
+
+    expect(result.isError).toBeUndefined();
+    const sc = result.structuredContent as { query: string; results: Array<{ title?: string }> };
+    expect(sc.query).toBe("books");
+    expect(sc.results).toHaveLength(10);
+    expect(sc.results[0]?.title).toBe("Book 1");
+    expect(sc.results[9]?.title).toBe("Book 10");
+    expect(firstText(result)).toContain("returning first 10");
+  });
+
+  test("book_search respects explicit limit override", async () => {
+    const fetchMock: FetchLike = async () => response(buildBookSearchHtml(12));
+
+    const result = await handleBookSearch({ query: "books", limit: 4 }, { config, fetchImpl: fetchMock });
+
+    expect(result.isError).toBeUndefined();
+    const sc = result.structuredContent as { query: string; results: Array<{ title?: string }> };
+    expect(sc.query).toBe("books");
+    expect(sc.results).toHaveLength(4);
+    expect(sc.results[3]?.title).toBe("Book 4");
+    expect(firstText(result)).toContain("returning first 4");
   });
 
   test("tool failures return MCP errors", async () => {

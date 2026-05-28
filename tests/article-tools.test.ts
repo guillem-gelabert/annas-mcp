@@ -38,6 +38,24 @@ Journal of Tests, vol 1, 2025">
 <div class="text-gray-500">PDF · 2.4MB</div>
 `;
 
+function buildArticleSearchHtml(count: number): string {
+  return Array.from({ length: count }, (_, index) => {
+    const i = index + 1;
+    const hash = `hash${String(i).padStart(2, "0")}abc`;
+    return `
+<div>
+  <a class="custom-a block mr-2 sm:mr-4 hover:opacity-80" href="/md5/${hash}">cover</a>
+  <div class="max-w-full">
+    <a href="/md5/${hash}">Interesting Paper ${i}</a>
+    <a href="/search?q=author"><span class="icon-[mdi--user-edit]"></span>Ada Lovelace</a>
+    <a href="/search?q=journal"><span class="icon-[mdi--company]"></span>Journal of Tests</a>
+    <div class="text-gray-800">English [en] · PDF · 2.${i}MB · 2025</div>
+  </div>
+</div>
+`;
+  }).join("\n");
+}
+
 function response(body: string): Response {
   return new Response(body, { status: 200 });
 }
@@ -80,6 +98,33 @@ describe("article MCP handlers", () => {
     expect(result.structuredContent).toEqual({ query: "missing", results: [] });
   });
 
+  test("article_search defaults to limit=10", async () => {
+    const fetchMock: FetchLike = async () => response(buildArticleSearchHtml(12));
+
+    const result = await handleArticleSearch({ query: "many results" }, { config, fetchImpl: fetchMock });
+
+    expect(result.isError).toBeUndefined();
+    const sc = result.structuredContent as { query: string; results: Array<{ title?: string }> };
+    expect(sc.query).toBe("many results");
+    expect(sc.results).toHaveLength(10);
+    expect(sc.results[0]?.title).toBe("Interesting Paper 1");
+    expect(sc.results[9]?.title).toBe("Interesting Paper 10");
+    expect(firstText(result)).toContain("returning first 10");
+  });
+
+  test("article_search respects explicit limit override", async () => {
+    const fetchMock: FetchLike = async () => response(buildArticleSearchHtml(12));
+
+    const result = await handleArticleSearch({ query: "many results", limit: 3 }, { config, fetchImpl: fetchMock });
+
+    expect(result.isError).toBeUndefined();
+    const sc = result.structuredContent as { query: string; results: Array<{ title?: string }> };
+    expect(sc.query).toBe("many results");
+    expect(sc.results).toHaveLength(3);
+    expect(sc.results[2]?.title).toBe("Interesting Paper 3");
+    expect(firstText(result)).toContain("returning first 3");
+  });
+
   test("article_download returns structured download resolution", async () => {
     const fetchMock: FetchLike = async (input) => {
       const url = String(input);
@@ -117,6 +162,40 @@ describe("article MCP handlers", () => {
           url: "https://annas-archive.li/scidb?doi=10.1038%2Fnature12345",
         },
       ],
+    });
+    expect(result.structuredContent).not.toHaveProperty("verification");
+  });
+
+  test("article_download includes verification when verbose=true", async () => {
+    const fetchMock: FetchLike = async (input) => {
+      const url = String(input);
+      if (url.includes("/scidb/10.1038%2Fnature12345")) {
+        return response(searchHtml);
+      }
+      if (url.includes("/md5/abc123def456")) {
+        return response(detailHtml);
+      }
+      if (url.includes("/dyn/api/fast_download.json")) {
+        return Response.json({ download_url: "https://download.example/paper.pdf" });
+      }
+      if (url.includes("api.crossref.org/works/")) {
+        return Response.json({ message: { title: ["Interesting Paper"] } });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    };
+
+    const result = await handleArticleDownload(
+      { doi: "10.1038/nature12345", verbose: true },
+      { config, fetchImpl: fetchMock },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      verification: {
+        crossrefTitle: "Interesting Paper",
+        annasTitle: "Interesting Paper",
+        confidence: "high",
+      },
     });
   });
 
@@ -491,7 +570,7 @@ describe("article_download base URL circuit breakers", () => {
     };
 
     const result = await handleArticleDownload(
-      { doi: doi1 },
+      { doi: doi1, verbose: true },
       { config, fetchImpl: fetchMock },
     );
 
@@ -539,7 +618,7 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     };
 
     const result = await handleArticleDownload(
-      { doi: doi1 },
+      { doi: doi1, verbose: true },
       { config, fetchImpl: fetchMock },
     );
 
@@ -563,7 +642,7 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     };
 
     const result = await handleArticleDownload(
-      { doi: doi1 },
+      { doi: doi1, verbose: true },
       { config, fetchImpl: fetchMock },
     );
 
@@ -587,7 +666,7 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     };
 
     const result = await handleArticleDownload(
-      { dois: [doi1, doi2] },
+      { dois: [doi1, doi2], verbose: true },
       { config, fetchImpl: fetchMock },
     );
 
@@ -616,7 +695,7 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     };
 
     const result = await handleArticleDownload(
-      { dois: [failingDoi, doi1] },
+      { dois: [failingDoi, doi1], verbose: true },
       { config, fetchImpl: fetchMock },
     );
 
@@ -642,7 +721,7 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     };
 
     const result = await handleArticleDownload(
-      { doi: doi1 },
+      { doi: doi1, verbose: true },
       { config, fetchImpl: fetchMock },
     );
 
