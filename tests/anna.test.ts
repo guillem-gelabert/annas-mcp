@@ -286,22 +286,23 @@ describe("secret redaction", () => {
 });
 
 describe("file-utils security utilities", () => {
-  test("validateDownloadUrl accepts HTTPS public URL", () => {
-    const url = validateDownloadUrl("https://cdn.example.com/file.epub");
+  test("validateDownloadUrl accepts HTTPS public URL", async () => {
+    const url = await validateDownloadUrl("https://cdn.example.com/file.epub");
     expect(url).toBeInstanceOf(URL);
   });
 
-  test("validateDownloadUrl rejects HTTP", () => {
-    expect(() => validateDownloadUrl("http://cdn.example.com/file.epub")).toThrow("non-HTTPS");
+  test("validateDownloadUrl rejects HTTP", async () => {
+    await expect(validateDownloadUrl("http://cdn.example.com/file.epub")).rejects.toThrow("non-HTTPS");
   });
 
-  test("validateDownloadUrl rejects localhost", () => {
-    expect(() => validateDownloadUrl("https://localhost/file")).toThrow("private/loopback");
+  test("validateDownloadUrl rejects localhost", async () => {
+    await expect(validateDownloadUrl("https://localhost/file")).rejects.toThrow("private/loopback");
   });
 
-  test("validateDownloadUrl rejects private IP", () => {
-    expect(() => validateDownloadUrl("https://192.168.1.100/file")).toThrow("private/loopback");
+  test("validateDownloadUrl rejects private IP", async () => {
+    await expect(validateDownloadUrl("https://192.168.1.100/file")).rejects.toThrow("private/loopback");
   });
+
 
   test("sanitizeFilename removes path traversal components", () => {
     const name = sanitizeFilename("../../etc/passwd");

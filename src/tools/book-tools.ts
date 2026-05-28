@@ -63,10 +63,6 @@ function textResult(text: string, isError = false): CallToolResult {
   };
 }
 
-function jsonText(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
-
 function bookExtension(format: string | undefined): string {
   if (!format) return ".bin";
   return "." + format.toLowerCase().replace(/^\./, "");
@@ -97,7 +93,7 @@ export async function handleBookSearch(
     }
 
     return {
-      content: [{ type: "text", text: jsonText(structuredContent) }],
+      content: [{ type: "text", text: `Found ${results.length} book result(s) for query: ${args.query}` }],
       structuredContent,
     };
   } catch (error) {
@@ -148,7 +144,12 @@ export async function handleBookDownload(
     };
 
     return {
-      content: [{ type: "text", text: jsonText(structuredContent) }],
+      content: [{
+        type: "text",
+        text: args.download
+          ? `Resolved and downloaded book hash ${args.hash}`
+          : `Resolved book hash ${args.hash}`,
+      }],
       structuredContent,
     };
   } catch (error) {
@@ -235,7 +236,7 @@ async function saveBookFile(
   const attemptErrors: string[] = [];
 
   for (const url of fastDownloadUrls) {
-    validateDownloadUrl(url);
+    await validateDownloadUrl(url);
     let bytesWritten = 0;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, resolve, sep } from "node:path";
+import { promises as dnsPromises } from "node:dns";
 
 export function resolveDownloadRoot(configuredRoot: string | null, requested: string | undefined): string {
   if (!configuredRoot) {
@@ -26,15 +27,7 @@ export function resolveDownloadRoot(configuredRoot: string | null, requested: st
   return resolved;
 }
 
-export function validateDownloadUrl(raw: string): URL {
-  const url = new URL(raw);
-
-  if (url.protocol !== "https:") {
-    throw new Error(`Rejected non-HTTPS download URL: ${url.protocol}`);
-  }
-
-  const host = url.hostname.toLowerCase();
-
+function isPrivateHost(host: string): boolean {
   const privateRanges = [
     "localhost",
     "127.0.0.1",
@@ -43,13 +36,44 @@ export function validateDownloadUrl(raw: string): URL {
     "169.254.169.254",
   ];
 
-  if (
+  return (
     privateRanges.includes(host) ||
     host.startsWith("192.168.") ||
     host.startsWith("10.") ||
     (host.startsWith("172.") && /^172\.(1[6-9]|2\d|3[01])\./.test(host))
-  ) {
+  );
+}
+
+type DnsLookupFn = (hostname: string) => Promise<{ address: string; family: number }>;
+
+export async function validateDownloadUrl(
+  raw: string,
+  dnsLookup: DnsLookupFn = (h) => dnsPromises.lookup(h),
+): Promise<URL> {
+  const url = new URL(raw);
+
+  if (url.protocol !== "https:") {
+    throw new Error(`Rejected non-HTTPS download URL: ${url.protocol}`);
+  }
+
+  const host = url.hostname.toLowerCase();
+
+  // Fast path: reject IP literals that are private/loopback without DNS lookup
+  if (isPrivateHost(host)) {
     throw new Error(`Rejected private/loopback download URL host: ${host}`);
+  }
+
+  // Resolve hostname to catch DNS rebinding / SSRF via domain-to-private-IP
+  try {
+    const { address } = await dnsLookup(host);
+    if (isPrivateHost(address)) {
+      throw new Error(`Rejected private/loopback download URL host: ${address}`);
+    }
+  } catch (err) {
+    // Re-throw our own security errors; ignore DNS resolution failures (network unreachable etc.)
+    if (err instanceof Error && err.message.startsWith("Rejected private/loopback")) {
+      throw err;
+    }
   }
 
   return url;
