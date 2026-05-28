@@ -303,6 +303,11 @@ describe("file-utils security utilities", () => {
     await expect(validateDownloadUrl("https://192.168.1.100/file")).rejects.toThrow("private/loopback");
   });
 
+  test("validateDownloadUrl rejects hostname that resolves to private IP", async () => {
+    const dnsLookup = async () => ({ address: "10.0.0.1", family: 4 });
+    await expect(validateDownloadUrl("https://cdn.example.com/file", dnsLookup)).rejects.toThrow("private/loopback");
+  });
+
 
   test("sanitizeFilename removes path traversal components", () => {
     const name = sanitizeFilename("../../etc/passwd");

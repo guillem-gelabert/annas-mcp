@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -134,6 +134,18 @@ describe("recordDownloadCache", () => {
       recordDownloadCache(root, {}, "/root/file.epub");
       const exists = require("node:fs").existsSync(join(root, ".annas-cache.json"));
       expect(exists).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("writes .annas-cache.json with restrictive permissions (0600)", () => {
+    const root = mkdtempSync(join(tmpdir(), "annas-cache-test-"));
+    try {
+      const filePath = join(root, "book.epub");
+      recordDownloadCache(root, { hash: "abc" }, filePath);
+      const mode = statSync(join(root, ".annas-cache.json")).mode & 0o777;
+      expect(mode).toBe(0o600);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

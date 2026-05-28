@@ -48,6 +48,10 @@ export const articleDownloadInputSchema = z
       .min(1)
       .optional()
       .describe("Array of DOIs to resolve in batch"),
+    verbose: z
+      .boolean()
+      .optional()
+      .describe("When false in batch mode, omit verification details to reduce payload size"),
   })
   .superRefine((val, ctx) => {
     const hasDoi = val.doi !== undefined;
@@ -104,10 +108,6 @@ function textResult(text: string, isError = false): CallToolResult {
   };
 }
 
-function jsonText(value: unknown): string {
-  return JSON.stringify(value, null, 2);
-}
-
 export async function handleArticleSearch(
   args: z.infer<typeof articleSearchInputSchema>,
   dependencies: ArticleToolDependencies,
@@ -133,7 +133,7 @@ export async function handleArticleSearch(
     }
 
     return {
-      content: [{ type: "text", text: jsonText(structuredContent) }],
+      content: [{ type: "text", text: `Found ${results.length} article result(s) for query: ${args.query}` }],
       structuredContent,
     };
   } catch (error) {
@@ -161,7 +161,7 @@ export async function handleArticleDownload(
 }
 
 async function handleSingleArticleDownload(
-  args: { doi: string },
+  args: { doi: string; verbose?: boolean },
   dependencies: ArticleToolDependencies,
 ): Promise<CallToolResult> {
   const manager = dependencies.baseUrlManager ?? new BaseUrlManager(dependencies.config, dependencies.fetchImpl);
@@ -189,13 +189,13 @@ async function handleSingleArticleDownload(
   };
 
   return {
-    content: [{ type: "text", text: jsonText(structuredContent) }],
+    content: [{ type: "text", text: `Resolved article DOI ${args.doi} with ${resolution.sources.length} source(s)` }],
     structuredContent,
   };
 }
 
 async function handleBatchArticleDownload(
-  args: { dois: string[] },
+  args: { dois: string[]; verbose?: boolean },
   dependencies: ArticleToolDependencies,
 ): Promise<CallToolResult> {
   // Create one shared BaseUrlManager instance for all lookups
@@ -272,21 +272,31 @@ async function handleBatchArticleDownload(
     }
   }
 
+  const includeVerification = args.verbose !== false;
+
   for (const { doi, resolution, crossrefTitle, index } of resolvedItems) {
-    const annasTitle = resolution.article.title ?? null;
-    const verification = {
-      crossrefTitle,
-      annasTitle,
-      confidence: computeConfidence(annasTitle ?? "", crossrefTitle),
-    };
-    results[index] = { doi, article: resolution.article, sources: resolution.sources, verification };
+    if (includeVerification) {
+      const annasTitle = resolution.article.title ?? null;
+      const verification = {
+        crossrefTitle,
+        annasTitle,
+        confidence: computeConfidence(annasTitle ?? "", crossrefTitle),
+      };
+      results[index] = { doi, article: resolution.article, sources: resolution.sources, verification };
+      continue;
+    }
+
+    results[index] = { doi, article: resolution.article, sources: resolution.sources };
   }
 
   // Filter out any undefined slots (should not occur in practice) and cast to concrete type.
   const orderedResults: ArticleBatchResult[] = results.filter((r): r is ArticleBatchResult => r !== undefined);
 
   return {
-    content: [{ type: "text", text: jsonText({ results: orderedResults }) }],
+    content: [{
+      type: "text",
+      text: `Resolved ${resolvedItems.length}/${args.dois.length} DOI(s)${includeVerification ? "" : " (compact mode)"}`,
+    }],
     structuredContent: { results: orderedResults },
   };
 }

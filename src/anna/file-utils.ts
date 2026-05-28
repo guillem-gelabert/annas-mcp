@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, resolve, sep } from "node:path";
 import { promises as dnsPromises } from "node:dns";
 
@@ -177,7 +177,9 @@ export function recordDownloadCache(downloadRoot: string, key: CacheKey, filePat
   index[keyStr] = filePath;
 
   try {
-    writeFileSync(indexPath, JSON.stringify(index, null, 2));
+    writeFileSync(indexPath, JSON.stringify(index, null, 2), { mode: 0o600 });
+    // Ensure restrictive permissions even when rewriting an existing file.
+    chmodSync(indexPath, 0o600);
   } catch {
     // best-effort; silently swallow write errors
   }

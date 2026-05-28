@@ -653,4 +653,33 @@ describe("article_download verification (VER-07/08/09/10/11)", () => {
     expect(v.confidence).toBe("unverified");
     expect(v.crossrefTitle).toBeNull();
   });
+
+  test("batch compact mode omits verification when verbose=false", async () => {
+    const fetchMock: FetchLike = async (input) => {
+      const url = String(input);
+      if (url.includes("/scidb/")) return response(searchHtml);
+      if (url.includes("/md5/")) return response(detailHtml);
+      if (url.includes("/dyn/api/fast_download.json")) {
+        return Response.json({ download_url: "https://download.example/paper.pdf" });
+      }
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { title: ["Interesting Paper"] } });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    };
+
+    const result = await handleArticleDownload(
+      { dois: [doi1, doi2], verbose: false },
+      { config, fetchImpl: fetchMock },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(firstText(result)).toContain("compact mode");
+    const sc = result.structuredContent as { results: Record<string, unknown>[] };
+    expect(sc.results).toHaveLength(2);
+    expect(sc.results[0]).not.toHaveProperty("verification");
+    expect(sc.results[1]).not.toHaveProperty("verification");
+    expect(sc.results[0]).toHaveProperty("article");
+    expect(sc.results[0]).toHaveProperty("sources");
+  });
 });
