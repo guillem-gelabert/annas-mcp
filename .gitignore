@@ -5,4 +5,6 @@ dist/
 !.env.example
 .mcp.json
 annas-mcp-go/
+annas-mcp-go-eval-bin
+annas-mcp_*.tar.xz
 .planning/
