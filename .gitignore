@@ -5,3 +5,4 @@ dist/
 !.env.example
 .mcp.json
 annas-mcp-go/
+.planning/
