@@ -306,7 +306,7 @@ Behavior:
 
 - Uses MediaWiki revisions content as source-of-truth.
 - Accepts only `annas-archive.*` hosts.
-- Trusts candidates only if present in latest revision and in at least one revision older than 24 hours.
+- Trusts candidates only if present in latest revision and in at least one revision older than 7 days.
 - Uses bounded revision scanning (dual cap).
 
 The tool returns the selected host, candidate trust/skipped metadata, and revision evidence. This cache is server-side operational state, not MCP client cache hints (`ttlMs`/`cacheScope`).
